@@ -1,30 +1,55 @@
-import { pubsubManager, userType } from "./initializer";
+import express, { Request, Response } from 'express';
+import { pubsubManager, userType } from './initializer';
+
+const app = express();
 const pubSub = pubsubManager.getInstance();
 
-const stockNames = ["AAPL", "GOOGL", "MSFT"];
-pubSub.subscribe(stockNames, userType.USER);
+app.use(express.json());
 
-setTimeout(() => {
-    console.log("\n📢 Publishing stock updates...\n");
-        const update1=[{
-            Price:[100,1001,10001],
-            Name:stockNames[0],
-            closedAt: 158, 
-            openedAt: 148 
-        }]
-        const update2=[{
-            Price:[51100,51001,510001],
-            Name:stockNames[1],
-            closedAt: 158, 
-            openedAt: 148 
-        }]
-        const update3=[{
-            Price:[8100,81001,810001],
-            Name:stockNames[2],
-            closedAt: 158, 
-            openedAt: 148 
-        }]
-        pubSub.publishHelper(userType.ADMIN, stockNames[0], update1);
-        pubSub.publishHelper(userType.ADMIN, stockNames[1], update2);
-        pubSub.publishHelper(userType.ADMIN, stockNames[2], update3);
-}, 1000);
+// Publisher Endpoint (ADMIN only)
+app.post('/publish', async (req: Request, res: Response): Promise<any> => {
+    const { channel, message, role } = req.body;
+
+    if (role !== userType.ADMIN) {
+        return res.status(403).json({ error: 'Only ADMIN can publish' });
+    }
+
+    try {
+        pubSub.publishHelper(userType.ADMIN, channel, message);
+        return res.json({ success: true, message: 'Message published' });
+    } catch (err) {
+        return res.status(500).json({ error: err });
+    }
+});
+
+
+app.get('/subscribe', async (req: Request, res: Response):Promise<any>=> {
+    const { channel } = req.query;
+
+    if (!channel) {
+        return res.status(400).json({ error: "Channel is required" });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    const messageHandler = (message: string) => {
+        console.log('Received message:', message);
+        res.write(`data: ${JSON.stringify({ message })}\n\n`);
+    };
+
+    try {
+        pubSub.subscribe(channel as string,userType.USER,messageHandler);
+        res.write(`data: Subscribed to channel: ${channel}\n\n`);
+    } catch (err) {
+        console.error("Subscription error:", err);
+        res.status(500).json({ error: err || "Internal Server Error" });
+    }
+});
+
+
+// Start the server
+app.listen(3000, () => {
+    console.log('Server running on http://localhost:3000');
+});

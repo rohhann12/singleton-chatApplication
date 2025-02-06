@@ -1,33 +1,37 @@
 import { createClient, RedisClientType } from 'redis';
+import dotenv from 'dotenv';
 
-interface Stock {
-    Price: Number[];
-    Name: String;
-    closedAt: Number;
-    openedAt: Number;
-}
+dotenv.config(); // Load environment variables from .env file
 
 export enum userType {
-    USER,
-    ADMIN
+    USER = 'USER',
+    ADMIN = 'ADMIN',
 }
 
 export class pubsubManager {
-    private stock: Stock[] = [];
     static instance: pubsubManager;
 
     private subscriber: RedisClientType;
     private publisher: RedisClientType;
 
     private constructor() {
-        this.stock = [];
-        this.subscriber = createClient({
-            url: "redis://localhost:6379"
+        const redisHostname = process.env.REDIS_HOSTNAME || 'localhost';
+        const redisPort = process.env.REDIS_PORT || '6379';
+        const redisPassword = process.env.REDIS_PASSWORD || '';
 
+        this.subscriber = createClient({
+            socket: {
+                host: redisHostname,
+                port: parseInt(redisPort),
+            },
+            password: redisPassword,
         });
         this.publisher = createClient({
-            url: "redis://localhost:6379"
-
+            socket: {
+                host: redisHostname,
+                port: parseInt(redisPort),
+            },
+            password: redisPassword,
         });
     }
 
@@ -44,34 +48,17 @@ export class pubsubManager {
         return pubsubManager.instance;
     }
 
-    public subscribe(stockNames: string[], role: userType) {
-        if (role !== userType.USER) {
-            return "Role not verified to subscribe";
-        }
-    
-        const messageHandler = (message: string) => {
-            try {
-                const stock: Stock[] = JSON.parse(message);
-                console.log('Received stock update:', stock);
-            } catch (err) {
-                console.error('Error parsing message:', err);
-            }
-        };
-
-        stockNames.forEach(stockName => {
-            this.subscriber.subscribe(stockName, messageHandler).catch((err) => {
-                console.error(`Error subscribing to ${stockName}:`, err);
-            });
+    public subscribe(channel: string, role: userType, messageHandler: (message: string) => void) {
+        this.subscriber.subscribe(channel, messageHandler).catch((err) => {
+            console.error(`Error subscribing to ${channel}:`, err);
         });
     }
-    
-    public publishHelper(role: userType, stockName: string, stockData: Stock[]) {
+
+    public publishHelper(role: userType, channel: string, message: string) {
         if (role !== userType.ADMIN) {
-            return "Role not verified to publish";
+            throw new Error('Only ADMIN can publish messages');
         }
-        this.publisher.publish(stockName, JSON.stringify(stockData));  
-        console.log(`Publishing stock updates for stock ${stockName}`);
+        this.publisher.publish(channel, message);
+        console.log(`Published message to ${channel}`);
     }
-    
-    
 }
